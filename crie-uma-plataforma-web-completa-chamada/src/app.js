@@ -18,6 +18,38 @@
     { key: "roleplayAverage", label: "Nota média roleplay", short: "Nota RP", decimal: true },
   ];
 
+  const featureNameDefaults = {
+    roleplay: "Roleplay",
+    roleplays: "Roleplays",
+    roleplayScore: "Nota RP",
+    dashboard: "Dashboard",
+    quickUpdate: "Atualização Rápida",
+    hunters: "Hunters",
+    meetingsBooked: "Reuniões Marcadas",
+    prospecting: "Prospecções",
+    conversion: "Conversão",
+    revenue: "Faturamento",
+    simulations: "Simuladas",
+    pipeline: "Pipeline",
+    ranking: "Ranking",
+  };
+
+  const featureNameFields = [
+    { key: "roleplay", label: "Roleplay" },
+    { key: "roleplays", label: "Roleplays" },
+    { key: "roleplayScore", label: "Nota RP" },
+    { key: "dashboard", label: "Dashboard" },
+    { key: "quickUpdate", label: "Atualização Rápida" },
+    { key: "hunters", label: "Hunters" },
+    { key: "meetingsBooked", label: "Reuniões Marcadas" },
+    { key: "prospecting", label: "Prospecções" },
+    { key: "conversion", label: "Conversão" },
+    { key: "revenue", label: "Faturamento" },
+    { key: "simulations", label: "Simuladas" },
+    { key: "pipeline", label: "Pipeline" },
+    { key: "ranking", label: "Ranking" },
+  ];
+
   const competencyFields = [
     { key: "organization", label: "Organização" },
     { key: "intensity", label: "Intensidade" },
@@ -53,7 +85,7 @@
     "Baixa conversão": "Revisar pitch, proposta de valor e RFC antes dos próximos contatos.",
     "Baixa resposta": "Rever segmentação, copy de abordagem e velocidade de resposta aos leads.",
     "Baixa organização": "Fazer revisão semanal do CRM e padronizar próximos passos por lead.",
-    "Baixo roleplay": "Realizar mais simuladas com foco em abertura, diagnóstico e objeções.",
+    "Baixo roleplay": "Realizar mais roleplays com foco em abertura, diagnóstico e objeções.",
     "Baixo pitch": "Treinar narrativa comercial e reforçar domínio da proposta de valor.",
     "Baixa autonomia": "Definir rotina de acompanhamento com mentor e critérios de decisão.",
     "Baixa comunicação": "Praticar clareza, escuta ativa e condução objetiva de reuniões.",
@@ -114,7 +146,7 @@
 
   function emptyMetrics() {
     return metricFields.reduce((acc, field) => {
-      acc[field.key] = 0;
+      acc[field.key] = field.key === "roleplayAverage" ? null : 0;
       return acc;
     }, {});
   }
@@ -183,6 +215,18 @@
     };
   }
 
+  function defaultFeatureNames() {
+    return { ...featureNameDefaults };
+  }
+
+  function normalizeFeatureNames(featureNames) {
+    return Object.keys(featureNameDefaults).reduce((acc, key) => {
+      const value = featureNames && typeof featureNames[key] === "string" ? featureNames[key].trim() : "";
+      acc[key] = value || featureNameDefaults[key];
+      return acc;
+    }, {});
+  }
+
   function defaultState() {
     return {
       version: 1,
@@ -191,6 +235,8 @@
       settings: {
         workspaceName: "EJMC Vendas",
         cycleName: "Ciclo comercial",
+        featureNames: defaultFeatureNames(),
+        adminOnlySettings: false,
         tvCommercial: defaultTvSettings(),
       },
     };
@@ -209,31 +255,38 @@
 
   function normalizeState(state) {
     const base = defaultState();
-    const members = Array.isArray(state.members) ? state.members : base.members;
+    const members = Array.isArray(state.members) && state.members.length ? state.members : base.members;
     return {
       ...base,
       ...state,
-      members: members.map((member, index) => ({
-        ...base.members[index % base.members.length],
-        ...member,
-        id: member.id || `m-${index + 1}`,
-        metrics: { ...emptyMetrics(), ...(member.metrics || {}) },
-        competencies: { ...emptyCompetencies(), ...(member.competencies || {}) },
-        notes: {
-          weeklyPositive: "",
-          weeklyImprovement: "",
-          general: "",
-          ...(member.notes || {}),
-        },
-        positives: Array.isArray(member.positives) ? member.positives : [],
-        improvements: Array.isArray(member.improvements) ? member.improvements : [],
-        roleplays: Array.isArray(member.roleplays) ? member.roleplays : [],
-        history: Array.isArray(member.history) ? member.history : [],
-        phase: phases.includes(member.phase) ? member.phase : member.role === "Assessor" ? "Assessor" : "Transição",
-      })),
+      members: members.map((member, index) => {
+        const normalized = {
+          ...base.members[index % base.members.length],
+          ...member,
+          id: member.id || `m-${index + 1}`,
+          metrics: { ...emptyMetrics(), ...(member.metrics || {}) },
+          competencies: { ...emptyCompetencies(), ...(member.competencies || {}) },
+          notes: {
+            weeklyPositive: "",
+            weeklyImprovement: "",
+            general: "",
+            ...(member.notes || {}),
+          },
+          positives: Array.isArray(member.positives) ? member.positives : [],
+          improvements: Array.isArray(member.improvements) ? member.improvements : [],
+          roleplays: Array.isArray(member.roleplays) ? member.roleplays : Array.isArray(member.simuladas) ? member.simuladas : [],
+          history: Array.isArray(member.history) ? member.history : [],
+          phase: phases.includes(member.phase) ? member.phase : member.role === "Assessor" ? "Assessor" : "Transição",
+        };
+        normalized.metrics.roleplayAverage = roleplayAverage(normalized);
+        normalized.metrics.roleplaysDone = normalized.roleplays.length || numberValue(normalized.metrics.roleplaysDone);
+        return normalized;
+      }),
       settings: {
         ...base.settings,
         ...(state.settings || {}),
+        featureNames: normalizeFeatureNames(state.settings && state.settings.featureNames),
+        adminOnlySettings: Boolean(state.settings && state.settings.adminOnlySettings),
         tvCommercial: {
           ...defaultTvSettings(),
           ...((state.settings && state.settings.tvCommercial) || {}),
@@ -262,6 +315,71 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
+  }
+
+  function activeFeatureNames() {
+    return normalizeFeatureNames(app.state && app.state.settings && app.state.settings.featureNames);
+  }
+
+  function uiName(key) {
+    return activeFeatureNames()[key] || featureNameDefaults[key] || key;
+  }
+
+  function lowerUiName(key) {
+    return uiName(key).toLocaleLowerCase("pt-BR");
+  }
+
+  function escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function featureText(value) {
+    const text = String(value ?? "");
+    const replacements = new Map([
+      ["Atualização Rápida", uiName("quickUpdate")],
+      ["atualização rápida", lowerUiName("quickUpdate")],
+      ["Dashboard", uiName("dashboard")],
+      ["Roleplays", uiName("roleplays")],
+      ["roleplays", lowerUiName("roleplays")],
+      ["Roleplay", uiName("roleplay")],
+      ["roleplay", lowerUiName("roleplay")],
+      ["Nota RP", uiName("roleplayScore")],
+      ["Hunters", uiName("hunters")],
+      ["Hunter", uiName("hunters")],
+      ["Reuniões Marcadas", uiName("meetingsBooked")],
+      ["Reuniões marcadas", uiName("meetingsBooked")],
+      ["reuniões marcadas", lowerUiName("meetingsBooked")],
+      ["Prospecções", uiName("prospecting")],
+      ["prospecções", lowerUiName("prospecting")],
+      ["Prospecção", uiName("prospecting")],
+      ["prospecção", lowerUiName("prospecting")],
+      ["Conversões", uiName("conversion")],
+      ["conversões", lowerUiName("conversion")],
+      ["Conversão", uiName("conversion")],
+      ["conversão", lowerUiName("conversion")],
+      ["Faturamento", uiName("revenue")],
+      ["faturamento", lowerUiName("revenue")],
+      ["Simuladas", uiName("simulations")],
+      ["simuladas", lowerUiName("simulations")],
+      ["Simulada", uiName("simulations")],
+      ["simulada", lowerUiName("simulations")],
+      ["Pipeline", uiName("pipeline")],
+      ["Ranking", uiName("ranking")],
+      ["ranking", lowerUiName("ranking")],
+    ]);
+    const pattern = new RegExp([...replacements.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp).join("|"), "g");
+    return text.replace(pattern, (match) => replacements.get(match));
+  }
+
+  function escapeUi(value) {
+    return escapeHtml(featureText(value));
+  }
+
+  function metricFieldText(field, property) {
+    if (field.key === "meetingsBooked") return uiName("meetingsBooked");
+    if (field.key === "roleplaysDone") return property === "label" ? `${uiName("roleplays")} realizados` : uiName("roleplays");
+    if (field.key === "roleplayAverage") return property === "label" ? `Nota média ${lowerUiName("roleplay")}` : uiName("roleplayScore");
+    return featureText(field[property] || "");
   }
 
   function clampNumber(value, min, max) {
@@ -311,10 +429,9 @@
   }
 
   function roleplayAverage(member) {
-    const roleplayScores = member.roleplays.map((item) => item.finalScore).filter((value) => value !== null && value !== undefined);
+    const roleplayScores = (member.roleplays || []).map((item) => item.finalScore).filter((value) => value !== null && value !== undefined);
     if (roleplayScores.length) return average(roleplayScores);
-    const metricValue = Number(member.metrics.roleplayAverage);
-    return metricValue > 0 ? metricValue : null;
+    return null;
   }
 
   function hasMemberData(member) {
@@ -401,7 +518,7 @@
     if (contacts > 0 && answered / contacts < 0.2) add("Baixa resposta", 2, "Taxa de resposta abaixo de 20% nos dados informados.");
     if (contacts > 0 && meetingsBooked / contacts < 0.08) add("Baixa conversão", 3, "Poucas reuniões marcadas em relação aos primeiros contatos.");
     if (contacts === 0 && (followUps > 0 || answered > 0 || meetingsBooked > 0)) add("Baixa intensidade", 2, "Há movimentação registrada sem primeiros contatos informados.");
-    if (roleplaysDone === 0 && (competencyAverage(member) !== null || contacts > 0)) add("Baixo roleplay", 2, "Nenhuma simulação registrada no ciclo atual.");
+    if (roleplaysDone === 0 && (competencyAverage(member) !== null || contacts > 0)) add("Baixo roleplay", 2, "Nenhum roleplay registrado no ciclo atual.");
 
     const lowCompetencies = [
       ["organization", "Baixa organização"],
@@ -521,8 +638,12 @@
     return pages.some((page) => page.id === hashPage) ? hashPage : "";
   }
 
+  function optionLabel(option) {
+    return option === "Hunter" ? uiName("hunters") : featureText(option);
+  }
+
   function selectOptions(options, current) {
-    return options.map((option) => `<option value="${escapeHtml(option)}" ${option === current ? "selected" : ""}>${escapeHtml(option)}</option>`).join("");
+    return options.map((option) => `<option value="${escapeHtml(option)}" ${option === current ? "selected" : ""}>${escapeHtml(optionLabel(option))}</option>`).join("");
   }
 
   function render() {
@@ -600,6 +721,7 @@
               <p id="login-error" class="form-error" hidden>Credenciais inválidas. Verifique e tente novamente.</p>
               <button class="primary-button" type="submit">Entrar</button>
               <button class="secondary-button" type="button" id="demo-login">Entrar em modo demonstração</button>
+              <button class="primary-button" type="button" id="dashboard-comercial">${escapeUi("Dashboard Comercial")}</button>
             </form>
           </div>
         </section>
@@ -627,6 +749,12 @@
       app.page = routePageFromLocation() || "dashboard";
       render();
     });
+
+    document.getElementById("dashboard-comercial").addEventListener("click", () => {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ mode: "demo", at: new Date().toISOString() }));
+      app.page = "dashboard";
+      render();
+    });
   }
 
   function renderSidebar() {
@@ -645,7 +773,7 @@
               (page) => `
                 <button class="nav-item ${app.page === page.id ? "active" : ""}" data-page="${page.id}" type="button">
                   ${icon(page.icon)}
-                  <span>${page.label}</span>
+                  <span>${escapeUi(page.label)}</span>
                 </button>
               `
             )
@@ -665,10 +793,10 @@
       <header class="topbar">
         <div>
           <span class="eyebrow">EJMC · Gestão comercial B2B</span>
-          <h2>${page?.label || "Dashboard"}</h2>
+          <h2>${escapeUi(page?.label || "Dashboard")}</h2>
         </div>
         <div class="topbar-actions">
-          <button class="ghost-button" type="button" data-page="quick">${icon("table")} Atualizar equipe</button>
+          <button class="ghost-button" type="button" data-page="quick">${icon("table")} ${escapeUi("Atualização Rápida")}</button>
           <button class="icon-button" type="button" data-action="logout" aria-label="Sair" title="Sair">${icon("logOut")}</button>
         </div>
       </header>
@@ -738,11 +866,11 @@
             </div>
           </div>
           <div class="tv-status">
-            <span>${escapeHtml(activeSlide.label)}</span>
+            <span>${escapeUi(activeSlide.label)}</span>
             <strong>Atualizado: ${formatDate(app.state.updatedAt)}</strong>
           </div>
           <div class="tv-controls">
-            <button class="tv-control" type="button" data-page="dashboard">Dashboard</button>
+            <button class="tv-control" type="button" data-page="dashboard">${escapeUi("Dashboard")}</button>
             <button class="tv-control" type="button" id="tv-pause">${icon(app.tvPaused ? "play" : "pause")} ${app.tvPaused ? "Continuar" : "Pausar"}</button>
             <button class="tv-control" type="button" id="tv-theme-toggle">${icon(settings.darkMode ? "sun" : "moon")} ${settings.darkMode ? "Claro" : "Escuro"}</button>
             <button class="tv-control" type="button" id="tv-fullscreen">${icon("maximize")} Tela cheia</button>
@@ -759,7 +887,7 @@
             ${slides
               .map(
                 (slide, index) => `
-                  <button class="${index === app.tvSlide ? "active" : ""}" type="button" data-tv-slide="${index}" aria-label="${escapeHtml(slide.label)}">
+                  <button class="${index === app.tvSlide ? "active" : ""}" type="button" data-tv-slide="${index}" aria-label="${escapeUi(slide.label)}">
                     <span></span>
                   </button>
                 `
@@ -829,7 +957,7 @@
       <section class="tv-slide">
         <div class="tv-slide-title">
           <span>Meta mensal</span>
-          <h1>Ritmo de faturamento e reuniões marcadas</h1>
+          <h1>${escapeUi("Ritmo de faturamento e reuniões marcadas")}</h1>
         </div>
         <div class="tv-goal-grid">
           ${tvGoalCard("Faturamento", settings.currentRevenue, settings.monthlyRevenueTarget, revenueGoal, "currency")}
@@ -864,7 +992,7 @@
                     <div class="avatar">${initials(member.name)}</div>
                     <div>
                       <strong>${escapeHtml(member.name)}</strong>
-                      <span>${escapeHtml(member.role)} · ${escapeHtml(member.phase)}</span>
+                      <span>${escapeUi(member.role)} · ${escapeHtml(member.phase)}</span>
                     </div>
                     ${badge(member.status, member.status === "Ativo" ? "success" : "neutral")}
                   </div>
@@ -883,7 +1011,7 @@
     return `
       <section class="tv-slide">
         <div class="tv-slide-title">
-          <span>Conversões da área</span>
+          <span>${escapeUi("Conversões da área")}</span>
           <h1>Eficiência do funil comercial</h1>
         </div>
         <div class="tv-conversion-grid">
@@ -912,7 +1040,7 @@
     return `
       <section class="tv-slide">
         <div class="tv-slide-title">
-          <span>Volume de prospecção</span>
+          <span>${escapeUi("Volume de prospecção")}</span>
           <h1>Ritmo de contatos e cadência de follow-up</h1>
         </div>
         <div class="tv-prospect-grid">
@@ -967,7 +1095,7 @@
         </div>
         ${
           alerts.length
-            ? `<div class="tv-alert-grid">${alerts.map((alert) => `<div class="tv-alert-card ${alert.type}"><strong>${escapeHtml(alert.title)}</strong><p>${escapeHtml(alert.text)}</p></div>`).join("")}</div>`
+            ? `<div class="tv-alert-grid">${alerts.map((alert) => `<div class="tv-alert-card ${alert.type}"><strong>${escapeUi(alert.title)}</strong><p>${escapeUi(alert.text)}</p></div>`).join("")}</div>`
             : emptyState("Sem alertas críticos", "Nenhum alerta coletivo com os dados atuais.")
         }
       </section>
@@ -990,10 +1118,10 @@
           </div>
 
           <div class="tv-settings-grid">
-            <label>Meta mensal de faturamento<input name="monthlyRevenueTarget" type="number" min="0" step="100" value="${escapeHtml(settings.monthlyRevenueTarget)}" /></label>
-            <label>Faturamento atual<input name="currentRevenue" type="number" min="0" step="100" value="${escapeHtml(settings.currentRevenue)}" /></label>
-            <label>Meta mensal de reuniões<input name="monthlyMeetingTarget" type="number" min="0" step="1" value="${escapeHtml(settings.monthlyMeetingTarget)}" /></label>
-            <label>Reuniões atuais<input name="currentMeetings" type="number" value="${escapeHtml(sum.metrics.meetingsBooked)}" readonly /></label>
+            <label>${escapeUi("Meta mensal de faturamento")}<input name="monthlyRevenueTarget" type="number" min="0" step="100" value="${escapeHtml(settings.monthlyRevenueTarget)}" /></label>
+            <label>${escapeUi("Faturamento atual")}<input name="currentRevenue" type="number" min="0" step="100" value="${escapeHtml(settings.currentRevenue)}" /></label>
+            <label>${escapeUi("Meta mensal de reuniões")}<input name="monthlyMeetingTarget" type="number" min="0" step="1" value="${escapeHtml(settings.monthlyMeetingTarget)}" /></label>
+            <label>${escapeUi("Reuniões atuais")}<input name="currentMeetings" type="number" value="${escapeHtml(sum.metrics.meetingsBooked)}" readonly /></label>
             <label>Tempo de troca dos slides<input name="slideSeconds" type="number" min="5" max="120" step="1" value="${escapeHtml(settings.slideSeconds)}" /></label>
             <label>Período analisado
               <select name="period">
@@ -1008,13 +1136,13 @@
           </div>
 
           <div class="tv-toggle-row">
-            <label><input name="showRanking" type="checkbox" ${settings.showRanking ? "checked" : ""} /> Mostrar ranking individual</label>
+            <label><input name="showRanking" type="checkbox" ${settings.showRanking ? "checked" : ""} /> ${escapeUi("Mostrar ranking individual")}</label>
             <label><input name="showActionPlan" type="checkbox" ${settings.showActionPlan ? "checked" : ""} /> Mostrar plano de ação</label>
             <label><input name="darkMode" type="checkbox" ${settings.darkMode ? "checked" : ""} /> Modo escuro</label>
           </div>
 
           <div class="tv-settings-grid">
-            <label class="span-2">Principal gargalo do mês<textarea name="bottleneck" placeholder="Ex.: baixa conversão resposta -> reunião">${escapeHtml(plan.bottleneck)}</textarea></label>
+            <label class="span-2">${escapeUi("Principal gargalo do mês")}<textarea name="bottleneck" placeholder="${escapeUi("Ex.: baixa conversão resposta -> reunião")}">${escapeHtml(plan.bottleneck)}</textarea></label>
             <label class="span-2">Foco da semana<textarea name="weeklyFocus" placeholder="Ex.: melhorar CTA e cadência de follow-up">${escapeHtml(plan.weeklyFocus)}</textarea></label>
             <label>Ação prioritária 1<input name="action1" value="${escapeHtml(plan.action1)}" /></label>
             <label>Ação prioritária 2<input name="action2" value="${escapeHtml(plan.action2)}" /></label>
@@ -1040,7 +1168,7 @@
   function tvMetric(label, value) {
     return `
       <article class="tv-metric">
-        <span>${escapeHtml(label)}</span>
+        <span>${escapeUi(label)}</span>
         <strong>${escapeHtml(value)}</strong>
       </article>
     `;
@@ -1051,7 +1179,7 @@
     return `
       <article class="tv-goal-card ${configured ? progress.statusKey : "empty"}">
         <div>
-          <span>${escapeHtml(label)}</span>
+          <span>${escapeUi(label)}</span>
           <strong>${configured ? progress.display : "Meta ainda não configurada"}</strong>
         </div>
         <div class="tv-goal-values">
@@ -1074,9 +1202,9 @@
     const status = !hasValue ? "Sem dados suficientes" : numericTarget === null || Number.isNaN(numericTarget) ? "Sem meta comparativa" : value >= numericTarget ? "Acima da meta" : "Abaixo da meta";
     return `
       <article class="tv-conversion-card">
-        <span>${escapeHtml(label)}</span>
+        <span>${escapeUi(label)}</span>
         <strong>${hasValue ? percent(value) : "Sem dados suficientes"}</strong>
-        <p>${escapeHtml(targetText)}</p>
+        <p>${escapeUi(targetText)}</p>
         ${badge(status, status === "Abaixo da meta" ? "danger" : status === "Acima da meta" ? "success" : "neutral")}
       </article>
     `;
@@ -1085,8 +1213,8 @@
   function tvActionItem(label, value) {
     return `
       <article class="tv-action-item">
-        <span>${escapeHtml(label)}</span>
-        <strong>${escapeHtml(value || "Aguardando definição")}</strong>
+        <span>${escapeUi(label)}</span>
+        <strong>${escapeUi(value || "Aguardando definição")}</strong>
       </article>
     `;
   }
@@ -1095,7 +1223,7 @@
     return `
       <div class="tv-panel">
         <div class="tv-panel-header">
-          <span>${escapeHtml(title)}</span>
+          <span>${escapeUi(title)}</span>
           ${badge(members.length ? `${members.length} membro(s)` : "Sem dados suficientes", type)}
         </div>
         ${
@@ -1112,7 +1240,7 @@
     return `
       <div class="tv-panel wide">
         <div class="tv-panel-header">
-          <span>Ranking individual</span>
+          <span>${escapeUi("Ranking individual")}</span>
           ${badge(items.length ? "Visão resumida" : "Sem dados suficientes", items.length ? "soft" : "neutral")}
         </div>
         ${
@@ -1276,7 +1404,7 @@
           <article class="panel">
             <div class="panel-header">
               <div>
-                <span class="eyebrow">Ranking</span>
+                <span class="eyebrow">${escapeUi("Ranking")}</span>
                 <h3>Performance individual</h3>
               </div>
               <button class="ghost-button compact" type="button" data-page="members">Ver membros</button>
@@ -1341,7 +1469,7 @@
             <span class="eyebrow">Gestão tática</span>
             <h1>Leitura objetiva para one-on-ones, reuniões semanais e priorização de acompanhamento.</h1>
           </div>
-          <button class="primary-button small" type="button" data-page="quick">${icon("save")} Atualização Rápida</button>
+          <button class="primary-button small" type="button" data-page="quick">${icon("save")} ${escapeUi("Atualização Rápida")}</button>
         </section>
 
         <section class="tactical-grid">
@@ -1468,8 +1596,8 @@
       "Cargo",
       "Fase",
       "Status",
-      ...metricFields.map((field) => field.short),
-      ...competencyFields.map((field) => field.label),
+      ...metricFields.filter((field) => field.key !== "roleplayAverage").map((field) => metricFieldText(field, "short")),
+      ...competencyFields.map((field) => featureText(field.label)),
       "Pontos positivos",
       "Pontos de melhoria",
       "Observações",
@@ -1517,7 +1645,8 @@
         <td><select class="cell-input" data-quick-field="role">${selectOptions(roles, member.role)}</select></td>
         <td><select class="cell-input" data-quick-field="phase">${selectOptions(phases, member.phase)}</select></td>
         <td><select class="cell-input" data-quick-field="status">${selectOptions(statuses, member.status)}</select></td>
-        ${metricFields
+          ${metricFields
+          .filter((field) => field.key !== "roleplayAverage")
           .map((field) => {
             const value = member.metrics[field.key] ?? 0;
             return `<td><input class="cell-input number" type="number" min="0" ${field.decimal ? 'step="0.1" max="10"' : 'step="1"'} data-quick-metric="${field.key}" value="${escapeHtml(value)}" /></td>`;
@@ -1581,8 +1710,8 @@
           <article class="panel">
             <div class="panel-header"><div><span class="eyebrow">Plano de ação</span><h3>Próximo foco sugerido</h3></div></div>
             <div class="action-plan">
-              <strong>${escapeHtml(diagnostic.label)}</strong>
-              <p>${escapeHtml(diagnostic.action)}</p>
+              <strong>${escapeUi(diagnostic.label)}</strong>
+              <p>${escapeUi(diagnostic.action)}</p>
             </div>
           </article>
         </section>
@@ -1604,8 +1733,8 @@
             ${renderMemberHistory(member)}
           </article>
           <article class="panel">
-            <div class="panel-header"><div><span class="eyebrow">Roleplays</span><h3>Simuladas registradas</h3></div><button class="ghost-button compact" data-page="roleplays" type="button">Adicionar</button></div>
-            ${member.roleplays.length ? renderRoleplayList(member.roleplays.slice(0, 4)) : emptyState("Nenhum roleplay cadastrado", "Registre simuladas para acompanhar comunicação, pitch e objeções.")}
+            <div class="panel-header"><div><span class="eyebrow">${escapeUi("Roleplays")}</span><h3>${escapeUi("Roleplays registrados")}</h3></div><button class="ghost-button compact" data-page="roleplays" type="button">Adicionar</button></div>
+            ${member.roleplays.length ? renderRoleplayList(member.roleplays.slice(0, 4)) : emptyState("Nenhum roleplay cadastrado", "Registre roleplays para acompanhar comunicação, pitch e objeções.")}
           </article>
         </section>
 
@@ -1646,7 +1775,7 @@
               ${competencyFields
                 .map((field) => `
                   <label>
-                    ${field.label}
+                    ${escapeUi(field.label)}
                     <input type="number" min="0" max="10" step="0.5" name="${field.key}" value="${escapeHtml(member.competencies[field.key] ?? "")}" placeholder="0-10" />
                   </label>
                 `)
@@ -1669,17 +1798,17 @@
       <div class="page-grid">
         <section class="section-title-row">
           <div>
-            <span class="eyebrow">Simuladas comerciais</span>
-            <h1>Registre roleplays e acompanhe evolução de postura, pitch e diagnóstico.</h1>
+            <span class="eyebrow">${escapeUi("Roleplays comerciais")}</span>
+            <h1>${escapeUi("Registre roleplays e acompanhe evolução de postura, pitch e diagnóstico.")}</h1>
           </div>
           <select id="roleplay-member-select">${app.state.members.map((item) => `<option value="${item.id}" ${item.id === member.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}</select>
         </section>
 
         <section class="two-column">
           <article class="panel">
-            <div class="panel-header"><div><span class="eyebrow">Novo roleplay</span><h3>${escapeHtml(member.name)}</h3></div></div>
+            <div class="panel-header"><div><span class="eyebrow">${escapeUi("Novo Roleplay")}</span><h3>${escapeHtml(member.name)}</h3></div></div>
             <form id="roleplay-form" class="form-grid">
-              <label>Tipo de roleplay<input name="type" placeholder="Ex.: Prospecção, diagnóstico, objeção" /></label>
+              <label>${escapeUi("Tipo de Roleplay")}<input name="type" placeholder="${escapeUi("Ex.: Prospecção, diagnóstico, objeção")}" /></label>
               <label>Data<input name="date" type="date" value="${new Date().toISOString().slice(0, 10)}" /></label>
               <label>Avaliador<input name="evaluator" placeholder="Nome do avaliador" /></label>
               <label>Comunicação<input name="communicationScore" type="number" min="0" max="10" step="0.5" placeholder="0-10" /></label>
@@ -1690,12 +1819,12 @@
               <label class="span-2">Pontos fortes<textarea name="strengths" placeholder="Principais pontos fortes"></textarea></label>
               <label class="span-2">Pontos de melhoria<textarea name="improvements" placeholder="Pontos a desenvolver"></textarea></label>
               <label class="span-2">Observação<textarea name="observation" placeholder="Observações adicionais"></textarea></label>
-              <button class="primary-button form-action span-2" type="submit">${icon("plus")} Adicionar roleplay</button>
+              <button class="primary-button form-action span-2" type="submit">${icon("plus")} ${escapeUi("Adicionar Roleplay")}</button>
             </form>
           </article>
           <article class="panel">
-            <div class="panel-header"><div><span class="eyebrow">Histórico</span><h3>Roleplays cadastrados</h3></div></div>
-            ${member.roleplays.length ? renderRoleplayList(member.roleplays) : emptyState("Nenhum roleplay cadastrado", "Use o formulário para registrar a primeira simulação.")}
+            <div class="panel-header"><div><span class="eyebrow">Histórico</span><h3>${escapeUi("Roleplays cadastrados")}</h3></div></div>
+            ${member.roleplays.length ? renderRoleplayList(member.roleplays) : emptyState("Nenhum roleplay cadastrado", "Use o formulário para registrar o primeiro roleplay.")}
           </article>
         </section>
       </div>
@@ -1710,7 +1839,7 @@
         <section class="section-title-row">
           <div>
             <span class="eyebrow">Métricas comerciais</span>
-            <h1>Funil comercial consolidado e comparativo operacional.</h1>
+            <h1>${escapeUi("Pipeline comercial consolidado e comparativo operacional.")}</h1>
           </div>
           <button class="primary-button small" type="button" data-page="quick">${icon("table")} Editar métricas</button>
         </section>
@@ -1730,15 +1859,55 @@
     `;
   }
 
+  function renderFeatureNameSettings() {
+    const names = activeFeatureNames();
+    return `
+      <section class="panel settings-platform-panel">
+        <div class="panel-header">
+          <div>
+            <span class="eyebrow">Configurações da Plataforma</span>
+            <h3>Nomes das Funcionalidades</h3>
+          </div>
+          ${badge("LocalStorage", "soft")}
+        </div>
+        <form id="feature-names-form" class="feature-settings-form">
+          <div class="settings-grid">
+            ${featureNameFields
+              .map(
+                (field) => `
+                  <label>
+                    ${escapeHtml(field.label)}
+                    <input name="${field.key}" value="${escapeHtml(names[field.key])}" data-default-value="${escapeHtml(featureNameDefaults[field.key])}" />
+                    <span class="settings-hint">Padrão: ${escapeHtml(featureNameDefaults[field.key])}</span>
+                  </label>
+                `
+              )
+              .join("")}
+          </div>
+          <div class="settings-permission-note">
+            <strong>Permissões futuras</strong>
+            <span>A área está visível por enquanto, mas já existe um marcador de configuração para restringir o acesso a administradores quando houver perfis de usuário.</span>
+          </div>
+          <div class="button-row">
+            <button class="primary-button" type="submit">${icon("save")} Salvar alterações</button>
+            <button class="secondary-button" type="button" id="restore-feature-names">Restaurar padrão</button>
+          </div>
+        </form>
+      </section>
+    `;
+  }
+
   function renderSettings() {
     return `
       <div class="page-grid">
         <section class="section-title-row">
           <div>
-            <span class="eyebrow">Configurações</span>
-            <h1>Base local, exportação e preparação para futuras integrações.</h1>
+            <span class="eyebrow">Configurações da Plataforma</span>
+            <h1>Personalização, base local e preparação para futuras integrações.</h1>
           </div>
         </section>
+
+        ${renderFeatureNameSettings()}
 
         <section class="two-column">
           <article class="panel">
@@ -1791,7 +1960,7 @@
             </div>
             <div class="report-meta">
               <strong>${escapeHtml(member.name)}</strong>
-              <span>${escapeHtml(member.role)} · ${escapeHtml(member.phase)}</span>
+              <span>${escapeUi(member.role)} · ${escapeHtml(member.phase)}</span>
               <span>${formatShortDate(new Date().toISOString())}</span>
             </div>
           </div>
@@ -1804,7 +1973,7 @@
 
           <div class="report-section">
             <h3>Diagnóstico</h3>
-            <p>${escapeHtml(diagnostic.label)}. ${escapeHtml(diagnostic.action)}</p>
+            <p>${escapeUi(diagnostic.label)}. ${escapeUi(diagnostic.action)}</p>
           </div>
 
           <div class="report-section">
@@ -1824,7 +1993,7 @@
 
           <div class="report-section">
             <h3>Plano de ação</h3>
-            <p>${escapeHtml(diagnostic.action)}</p>
+            <p>${escapeUi(diagnostic.action)}</p>
           </div>
         </section>
       </div>
@@ -1832,15 +2001,15 @@
   }
 
   function miniStat(label, value) {
-    return `<div class="mini-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+    return `<div class="mini-stat"><span>${escapeUi(label)}</span><strong>${escapeUi(value)}</strong></div>`;
   }
 
   function kpiCard(label, value, helper, variant = "") {
     return `
       <article class="kpi-card ${variant}">
-        <span>${escapeHtml(label)}</span>
-        <strong>${escapeHtml(value)}</strong>
-        <p>${escapeHtml(helper)}</p>
+        <span>${escapeUi(label)}</span>
+        <strong>${escapeUi(value)}</strong>
+        <p>${escapeUi(helper)}</p>
       </article>
     `;
   }
@@ -1848,22 +2017,22 @@
   function tacticalCard(label, value, helper, variant) {
     return `
       <article class="tactical-card ${variant}">
-        <span>${escapeHtml(label)}</span>
-        <strong>${escapeHtml(value)}</strong>
-        <p>${escapeHtml(helper)}</p>
+        <span>${escapeUi(label)}</span>
+        <strong>${escapeUi(value)}</strong>
+        <p>${escapeUi(helper)}</p>
       </article>
     `;
   }
 
   function badge(label, type = "neutral") {
-    return `<span class="badge ${type}">${escapeHtml(label)}</span>`;
+    return `<span class="badge ${type}">${escapeUi(label)}</span>`;
   }
 
   function emptyState(title, text) {
     return `
       <div class="empty-state">
-        <strong>${escapeHtml(title)}</strong>
-        <p>${escapeHtml(text)}</p>
+        <strong>${escapeUi(title)}</strong>
+        <p>${escapeUi(text)}</p>
       </div>
     `;
   }
@@ -1874,7 +2043,7 @@
         <div class="avatar">${initials(member.name)}</div>
         <div>
           <strong>${escapeHtml(member.name)}</strong>
-          <span>${member.nickname ? escapeHtml(member.nickname) : `${escapeHtml(member.role)} · ${escapeHtml(member.phase)}`}</span>
+          <span>${member.nickname ? escapeHtml(member.nickname) : `${escapeUi(member.role)} · ${escapeHtml(member.phase)}`}</span>
         </div>
       </div>
     `;
@@ -1883,7 +2052,7 @@
   function progressRow(label, value, width) {
     return `
       <div class="progress-row">
-        <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
+        <div><span>${escapeUi(label)}</span><strong>${escapeUi(value)}</strong></div>
         <div class="progress-track"><span style="width:${Math.max(2, width)}%"></span></div>
       </div>
     `;
@@ -1921,7 +2090,7 @@
               <button type="button" class="alert-item" data-open-profile="${item.member.id}">
                 <div>
                   <strong>${escapeHtml(item.member.name)}</strong>
-                  <span>${escapeHtml(item.diagnostic.label)}</span>
+                  <span>${escapeUi(item.diagnostic.label)}</span>
                 </div>
                 ${badge(item.diagnostic.severity >= 3 ? "Prioridade alta" : "Acompanhar", item.diagnostic.severity >= 3 ? "danger" : "soft")}
               </button>
@@ -1969,7 +2138,7 @@
                 ${memberIdentity(item.member)}
                 <div>
                   ${badge(item.diagnostic.label, item.diagnostic.severity >= 3 ? "danger" : "soft")}
-                  <p>${escapeHtml(item.diagnostic.action)}</p>
+                  <p>${escapeUi(item.diagnostic.action)}</p>
                 </div>
               </button>
             `
@@ -2032,7 +2201,7 @@
   function inlineField(label, field, memberId, options, current) {
     return `
       <label class="inline-field">
-        <span>${escapeHtml(label)}</span>
+        <span>${escapeUi(label)}</span>
         <select class="inline-select" data-member-field="${field}" data-member-id="${memberId}">
           ${selectOptions(options, current)}
         </select>
@@ -2047,8 +2216,8 @@
           .map(
             (field) => `
               <div class="metric-tile">
-                <span>${escapeHtml(field.short)}</span>
-                <strong>${escapeHtml(member.metrics[field.key] || 0)}</strong>
+                <span>${escapeHtml(metricFieldText(field, "short"))}</span>
+                <strong>${field.key === "roleplayAverage" && member.metrics[field.key] === null ? "Sem nota" : escapeHtml(member.metrics[field.key] || 0)}</strong>
               </div>
             `
           )
@@ -2105,7 +2274,7 @@
             (item) => `
               <div class="roleplay-card">
                 <div>
-                  <strong>${escapeHtml(item.type || "Roleplay")}</strong>
+                  <strong>${item.type ? escapeHtml(item.type) : escapeUi("Roleplay")}</strong>
                   <span>${formatShortDate(item.date)} · ${escapeHtml(item.evaluator || "Avaliador não informado")}</span>
                 </div>
                 ${badge(item.finalScore === null ? "Sem nota final" : `Nota ${Number(item.finalScore).toFixed(1)}`, item.finalScore === null ? "neutral" : "success")}
@@ -2220,9 +2389,9 @@
           <thead>
             <tr>
               <th>Membro</th>
-              ${metricFields.map((field) => `<th>${escapeHtml(field.short)}</th>`).join("")}
+              ${metricFields.map((field) => `<th>${escapeHtml(metricFieldText(field, "short"))}</th>`).join("")}
               <th>Resposta</th>
-              <th>Conversão</th>
+              <th>${escapeUi("Conversão")}</th>
             </tr>
           </thead>
           <tbody>
@@ -2635,7 +2804,7 @@
         const finalScore = average(scores);
         const roleplay = {
           id: crypto.randomUUID ? crypto.randomUUID() : `r-${Date.now()}`,
-          type: data.get("type") || "Roleplay",
+          type: data.get("type") || uiName("roleplay"),
           date: data.get("date") || new Date().toISOString().slice(0, 10),
           evaluator: data.get("evaluator") || "",
           communicationScore: scores[0],
@@ -2654,12 +2823,32 @@
         if (finalScore !== null) member.metrics.roleplayAverage = roleplayAverage(member);
         member.lastUpdated = new Date().toISOString();
         saveState();
-        toast("Roleplay cadastrado com sucesso.");
+        toast(`${uiName("roleplay")} cadastrado com sucesso.`);
       });
     }
   }
 
   function bindSettingsPage() {
+    const featureNamesForm = document.getElementById("feature-names-form");
+    if (featureNamesForm) {
+      featureNamesForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = new FormData(featureNamesForm);
+        app.state.settings.featureNames = normalizeFeatureNames(Object.fromEntries(data.entries()));
+        saveState();
+        toast("Nomes das funcionalidades salvos.");
+      });
+    }
+
+    const restoreFeatureNames = document.getElementById("restore-feature-names");
+    if (restoreFeatureNames) {
+      restoreFeatureNames.addEventListener("click", () => {
+        app.state.settings.featureNames = defaultFeatureNames();
+        saveState();
+        toast("Nomes restaurados para o padrão.");
+      });
+    }
+
     const exportButton = document.getElementById("export-data");
     if (exportButton) {
       exportButton.addEventListener("click", () => {

@@ -1,0 +1,14 @@
+{
+  "name": "ejmc-vendas",
+  "version": "1.0.0",
+  "description": "Plataforma web interna da EJMC para acompanhamento comercial.",
+  "private": true,
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "node --check src/app.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
